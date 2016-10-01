@@ -1,13 +1,17 @@
 package com.example.andy.messageinabottle;
 
 import android.Manifest;
+import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.StrictMode;
 import android.location.Location;
 import android.support.annotation.NonNull;
+import android.support.design.widget.FloatingActionButton;
 import android.support.v4.app.FragmentActivity;
 import android.support.v4.content.ContextCompat;
+import android.support.v7.app.AlertDialog;
+import android.text.InputType;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
@@ -22,6 +26,8 @@ import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.sothree.slidinguppanel.SlidingUpPanelLayout;
+import com.sothree.slidinguppanel.SlidingUpPanelLayout.PanelState;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -44,12 +50,13 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private static final String TAG = MapsActivity.class.getName();
     private static final int ZOOM = 18;
 
+    private SlidingUpPanelLayout mLayout;
     private GoogleMap mMap;
-    private EditText mMessageEditText;
-    private Button mMessageSubmitButton;
 
-    private String serverUrl = "http://65976bdc.ngrok.io";
+    private String mServerUrl = "http://52.41.253.190:9000";
+    private String mText;
     private OkHttpClient mClient;
+    private FloatingActionButton mFloatingActionButton;
 
     /**
      * Provides the entry point to Google Play services.
@@ -70,18 +77,59 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
+//        String stringJson = createJson();
+//        post(serverUrl, stringJson);
+//        mMessageEditText.setText("");
 
-        mMessageEditText = (EditText) findViewById(R.id.message_edit_text);
-        mMessageSubmitButton = (Button) findViewById(R.id.message_submit_button);
-
-        mMessageSubmitButton.setOnClickListener(new View.OnClickListener() {
+        mLayout = (SlidingUpPanelLayout) findViewById(R.id.sliding_layout);
+        mLayout.addPanelSlideListener(new SlidingUpPanelLayout.PanelSlideListener() {
             @Override
-            public void onClick(View mMessageSubmitButton) {
-                String stringJson = createJson();
-                post(serverUrl, stringJson);
-                mMessageEditText.setText("");
+            public void onPanelSlide(View panel, float slideOffset) {
+                Log.i(TAG, "onPanelSlide, offset " + slideOffset);
+            }
+
+            @Override
+            public void onPanelStateChanged(View panel, PanelState previousState, PanelState newState) {
+                Log.i(TAG, "onPanelStateChanged " + newState);
             }
         });
+        mLayout.setFadeOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                mLayout.setPanelState(PanelState.COLLAPSED);
+            }
+        });
+
+        mFloatingActionButton = (FloatingActionButton) findViewById(R.id.floatingActionButton);
+        mFloatingActionButton.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                showSendTextDialog();
+            }
+        });
+
+    }
+
+    private void showSendTextDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Drop a Message");
+
+        final EditText input = new EditText(this);
+        builder.setView(input);
+
+        builder.setPositiveButton("OK", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                mText = input.getText().toString();
+                post(mServerUrl, createJson());
+            }
+        });
+        builder.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                dialog.cancel();
+            }
+        });
+        builder.show();
     }
 
     /**
@@ -97,23 +145,22 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     public void onMapReady(GoogleMap googleMap) {
         mMap = googleMap;
 
-        try {
-            StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder()
-                    .permitAll().build();
-            StrictMode.setThreadPolicy(policy);
-//            System.out.println("Messages: " + getMessages(serverUrl+"/open/"));
-            List<Message> msgs = getMessages(serverUrl + "/open/");
-            for (Message m : msgs){
-                System.out.println("message:" + m.text);
-                System.out.println("lat" + m.lat);
-                System.out.println("long" + m.lng);
-                mMap.addMarker(new MarkerOptions()
-                        .position(new LatLng(m.lat, m.lng))
-                        .title(m.text));
-            }
-        } catch (IOException e) {
-            System.out.println(e);
-        }
+//        try {
+        StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder()
+                .permitAll().build();
+        StrictMode.setThreadPolicy(policy);
+//            List<Message> msgs = getMessages(serverUrl + "/open/");
+//            for (Message m : msgs){
+//                System.out.println("message:" + m.text);
+//                System.out.println("lat" + m.lat);
+//                System.out.println("long" + m.lng);
+//                mMap.addMarker(new MarkerOptions()
+//                        .position(new LatLng(m.lat, m.lng))
+//                        .title(m.text));
+//            }
+//        } catch (IOException e) {
+//            System.out.println(e);
+//        }
 
         enableMyLocation();
         buildGoogleApiClient();
@@ -132,7 +179,8 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     }
 
     private List<Message> getMessages(String server) throws IOException {
-        String json = "{\"lat\":43.473010,\"long\":-80.540047}";
+        String json = "{\"lat\":" + mLastLocation.getLatitude() + ",\"long\": " + mLastLocation.getLongitude() + "}";
+
         RequestBody body = RequestBody.create(JSONType, json);
         Request request = new Request.Builder()
                 .url(server)
@@ -200,9 +248,9 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         try {
             JSONObject obj = new JSONObject();
 
-            obj.put("long", mLastLocation.getLongitude());
-            obj.put("lat", mLastLocation.getLatitude());
-            obj.put("EditText", mMessageEditText.getText());
+            obj.put("longitude", mLastLocation.getLongitude());
+            obj.put("latitude", mLastLocation.getLatitude());
+            obj.put("text", mText);
 
             return obj.toString();
         } catch (JSONException e) {
@@ -214,13 +262,23 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         try {
             RequestBody body = RequestBody.create(JSONType, json);
             Request request = new Request.Builder()
-                    .url(url)
+                    .url(url + "/send/")
                     .post(body)
                     .build();
             Response response = mClient.newCall(request).execute();
             return response.body().string();
         } catch (IOException e) {
             return null;
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (mLayout != null &&
+                (mLayout.getPanelState() == PanelState.EXPANDED || mLayout.getPanelState() == PanelState.ANCHORED)) {
+            mLayout.setPanelState(PanelState.COLLAPSED);
+        } else {
+            super.onBackPressed();
         }
     }
 }

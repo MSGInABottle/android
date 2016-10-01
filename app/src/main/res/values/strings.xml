@@ -3,4 +3,5 @@
     <string name="title_activity_maps">Map</string>
     <string name="message_submit_button">Submit</string>
     <string name="edit_text_hint">Drop a message</string>
+    <string name="sliding_up_panel_title">Messages</string>
 </resources>
