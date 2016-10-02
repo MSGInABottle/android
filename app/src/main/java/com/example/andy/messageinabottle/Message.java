@@ -13,4 +13,9 @@ public class Message {
         lng = Double.parseDouble(lg);
         lat = Double.parseDouble(lt);
     }
+
+    @Override
+    public String toString() {
+        return text;
+    }
 }

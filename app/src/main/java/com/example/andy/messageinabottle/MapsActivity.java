@@ -1,10 +1,12 @@
 package com.example.andy.messageinabottle;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.location.Location;
+import android.os.Handler;
 import android.support.annotation.NonNull;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v4.app.ActivityCompat;
@@ -13,7 +15,9 @@ import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AlertDialog;
 import android.util.Log;
 import android.view.View;
+import android.widget.ArrayAdapter;
 import android.widget.EditText;
+import android.widget.ListView;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
@@ -53,12 +57,15 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
     private SlidingUpPanelLayout mLayout;
     private GoogleMap mMap;
+    private Activity mActivity;
 
     private String mServerUrl = "http://52.41.253.190:9000";
     private String mText;
     private OkHttpClient mClient;
     private FloatingActionButton mFloatingActionButton;
     private List<Message> mMessages;
+    private ListView mMessageListView;
+    private ArrayAdapter mAdapter;
 
     /**
      * Provides the entry point to Google Play services.
@@ -73,6 +80,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        mActivity = this;
         mClient = new OkHttpClient();
         setContentView(R.layout.activity_maps);
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
@@ -106,6 +114,27 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             }
         });
 
+        mMessageListView = (ListView) findViewById(R.id.messagesListView);
+        mMessages = new ArrayList<>();
+        mAdapter = new ArrayAdapter(mActivity,
+                android.R.layout.simple_list_item_1, mMessages);
+        mMessageListView.setAdapter(mAdapter);
+
+        final Handler handler = new Handler();
+        Runnable runnable = new Runnable() {
+
+            @Override
+            public void run() {
+                try {
+                    loadMessages();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                } finally {
+                    handler.postDelayed(this, 5000);
+                }
+            }
+        };
+        handler.postDelayed(runnable, 5000);
     }
 
     private void showSendTextDialog() {
@@ -143,7 +172,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
             @Override
             public void onResponse(Call call, Response response) throws IOException {
-                mMessages = new ArrayList<>();
+                mMessages.clear();
                 try {
                     JSONArray jsonMessages = new JSONArray(response.body().string());
                     for (int i = 0; i < jsonMessages.length(); i++) {
@@ -152,7 +181,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                         mMessages.add(msg);
                     }
 
-                    MapsActivity.this.runOnUiThread(new Runnable() {
+                    mActivity.runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
                             for (Message m : mMessages) {
@@ -160,6 +189,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                                         .position(new LatLng(m.lat, m.lng))
                                         .title(m.text));
                             }
+                            mAdapter.notifyDataSetChanged();
                         }
                     });
                 } catch (JSONException e) {
