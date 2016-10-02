@@ -4,17 +4,15 @@ import android.Manifest;
 import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
-import android.os.StrictMode;
 import android.location.Location;
 import android.support.annotation.NonNull;
 import android.support.design.widget.FloatingActionButton;
+import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.FragmentActivity;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AlertDialog;
-import android.text.InputType;
 import android.util.Log;
 import android.view.View;
-import android.widget.Button;
 import android.widget.EditText;
 
 import com.google.android.gms.common.ConnectionResult;
@@ -35,6 +33,8 @@ import org.json.JSONObject;
 
 import java.io.IOException;
 
+import okhttp3.Call;
+import okhttp3.Callback;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -46,9 +46,10 @@ import java.util.List;
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback, GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
 
-    public static final MediaType JSONType = MediaType.parse("application/json; charset=utf-8");
+    private static final MediaType JSONType = MediaType.parse("application/json; charset=utf-8");
     private static final String TAG = MapsActivity.class.getName();
     private static final int ZOOM = 18;
+    private static final int LOCATION_PERMISSION_GRANTED = 1;
 
     private SlidingUpPanelLayout mLayout;
     private GoogleMap mMap;
@@ -57,6 +58,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private String mText;
     private OkHttpClient mClient;
     private FloatingActionButton mFloatingActionButton;
+    private List<Message> mMessages;
 
     /**
      * Provides the entry point to Google Play services.
@@ -77,9 +79,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
-//        String stringJson = createJson();
-//        post(serverUrl, stringJson);
-//        mMessageEditText.setText("");
 
         mLayout = (SlidingUpPanelLayout) findViewById(R.id.sliding_layout);
         mLayout.addPanelSlideListener(new SlidingUpPanelLayout.PanelSlideListener() {
@@ -120,7 +119,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 mText = input.getText().toString();
-                post(mServerUrl, createJson());
+                sendMessage();
             }
         });
         builder.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
@@ -130,6 +129,80 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             }
         });
         builder.show();
+    }
+
+    private void loadMessages() {
+        Request request = new Request.Builder()
+                .url(mServerUrl + "/messages/?latitude=" + mLastLocation.getLatitude() + "&longitude=" + mLastLocation.getLongitude())
+                .build();
+        mClient.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                e.printStackTrace();
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+                mMessages = new ArrayList<>();
+                try {
+                    JSONArray jsonMessages = new JSONArray(response.body().string());
+                    for (int i = 0; i < jsonMessages.length(); i++) {
+                        JSONObject jsonMsg = jsonMessages.getJSONObject(i);
+                        Message msg = new Message(jsonMsg.getString("Text"), jsonMsg.getString("Longitude"), jsonMsg.getString("Latitude"));
+                        mMessages.add(msg);
+                    }
+
+                    MapsActivity.this.runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            for (Message m : mMessages) {
+                                mMap.addMarker(new MarkerOptions()
+                                        .position(new LatLng(m.lat, m.lng))
+                                        .title(m.text));
+                            }
+                        }
+                    });
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+    }
+
+
+    void sendMessage() {
+        RequestBody body = RequestBody.create(JSONType, createJson());
+        Request request = new Request.Builder()
+                .url(mServerUrl + "/send/")
+                .post(body)
+                .build();
+
+        mClient.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                e.printStackTrace();
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+                loadMessages();
+            }
+        });
+    }
+
+    private String createJson() {
+
+        try {
+            JSONObject obj = new JSONObject();
+
+            obj.put("longitude", mLastLocation.getLongitude());
+            obj.put("latitude", mLastLocation.getLatitude());
+            obj.put("text", mText);
+
+            return obj.toString();
+        } catch (JSONException e) {
+            return null;
+        }
     }
 
     /**
@@ -144,24 +217,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     @Override
     public void onMapReady(GoogleMap googleMap) {
         mMap = googleMap;
-
-//        try {
-        StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder()
-                .permitAll().build();
-        StrictMode.setThreadPolicy(policy);
-//            List<Message> msgs = getMessages(serverUrl + "/open/");
-//            for (Message m : msgs){
-//                System.out.println("message:" + m.text);
-//                System.out.println("lat" + m.lat);
-//                System.out.println("long" + m.lng);
-//                mMap.addMarker(new MarkerOptions()
-//                        .position(new LatLng(m.lat, m.lng))
-//                        .title(m.text));
-//            }
-//        } catch (IOException e) {
-//            System.out.println(e);
-//        }
-
         enableMyLocation();
         buildGoogleApiClient();
     }
@@ -174,33 +229,37 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             mMap.setMyLocationEnabled(true);
             mMap.getUiSettings().setMyLocationButtonEnabled(true);
         } else {
-            Log.d(TAG, "Need location access");
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_PERMISSION_GRANTED);
         }
     }
 
-    private List<Message> getMessages(String server) throws IOException {
-        String json = "{\"lat\":" + mLastLocation.getLatitude() + ",\"long\": " + mLastLocation.getLongitude() + "}";
+    @Override
+    public void onRequestPermissionsResult(int requestCode,
+                                           String permissions[], int[] grantResults) {
+        switch (requestCode) {
+            case LOCATION_PERMISSION_GRANTED: {
+                // If request is cancelled, the result arrays are empty.
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
 
-        RequestBody body = RequestBody.create(JSONType, json);
-        Request request = new Request.Builder()
-                .url(server)
-                .post(body)
-                .build();
-        System.out.println("Url: " + request.toString());
-        Response response = mClient.newCall(request).execute();
-        List<Message> messages = new ArrayList<Message>();
-        try {
-            JSONArray jsonMessages = new JSONArray(response.body().string());
-            for (int i = 0; i < jsonMessages.length(); i++) {
-                JSONObject jsonMsg = jsonMessages.getJSONObject(i);
-                Message msg = new Message(jsonMsg.getString("text"), jsonMsg.getString("long"), jsonMsg.getString("lat"));
-                messages.add(msg);
+
+                    if (grantResults.length > 0
+                            && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+
+                        mMap.setMyLocationEnabled(true);
+                        mMap.getUiSettings().setMyLocationButtonEnabled(true);
+                        loadMessages();
+
+                        mLastLocation = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
+                        if (mLastLocation != null) {
+                            double latitude = mLastLocation.getLatitude();
+                            double longitude = mLastLocation.getLongitude();
+                            mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(latitude, longitude), ZOOM));
+                        }
+                    }
+                }
             }
-        } catch (JSONException e) {
-            e.printStackTrace();
         }
-//        return response.body().string();
-        return messages;
     }
 
     protected synchronized void buildGoogleApiClient() {
@@ -227,8 +286,10 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                 double latitude = mLastLocation.getLatitude();
                 double longitude = mLastLocation.getLongitude();
                 mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(latitude, longitude), ZOOM));
+                loadMessages();
             } else {
-                Log.e(TAG, "Failed to find last location");
+                ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_PERMISSION_GRANTED);
             }
         }
     }
@@ -241,35 +302,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     @Override
     public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
 
-    }
-
-    private String createJson() {
-
-        try {
-            JSONObject obj = new JSONObject();
-
-            obj.put("longitude", mLastLocation.getLongitude());
-            obj.put("latitude", mLastLocation.getLatitude());
-            obj.put("text", mText);
-
-            return obj.toString();
-        } catch (JSONException e) {
-            return null;
-        }
-    }
-
-    String post(String url, String json) {
-        try {
-            RequestBody body = RequestBody.create(JSONType, json);
-            Request request = new Request.Builder()
-                    .url(url + "/send/")
-                    .post(body)
-                    .build();
-            Response response = mClient.newCall(request).execute();
-            return response.body().string();
-        } catch (IOException e) {
-            return null;
-        }
     }
 
     @Override
